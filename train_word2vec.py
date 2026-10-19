@@ -1,8 +1,14 @@
 
-from gensim.models import Word2Vec
+from pathlib import Path
 import re
 
-# 감정별 학습 문장
+from gensim.models import Word2Vec
+
+
+# =====================================
+# 1. 감정별 학습 데이터
+# =====================================
+
 EMOTION_DATA = {
     "행복": [
         "오늘 행복하다",
@@ -16,6 +22,7 @@ EMOTION_DATA = {
         "만족스럽고 뿌듯하다",
         "오늘은 즐거운 날이다",
     ],
+
     "슬픔": [
         "오늘 슬프다",
         "정말 우울하고 속상하다",
@@ -28,6 +35,7 @@ EMOTION_DATA = {
         "아쉽고 서운한 마음이다",
         "오늘은 기분이 좋지 않다",
     ],
+
     "분노": [
         "오늘 화가 난다",
         "정말 짜증 나고 열받는다",
@@ -40,6 +48,7 @@ EMOTION_DATA = {
         "답답해서 화를 내고 싶다",
         "정말 짜증 나는 하루다",
     ],
+
     "피로": [
         "오늘 너무 피곤하다",
         "몸이 지치고 힘들다",
@@ -52,6 +61,7 @@ EMOTION_DATA = {
         "아무것도 하기 싫다",
         "휴식이 필요하고 피곤하다",
     ],
+
     "평온": [
         "오늘 마음이 편안하다",
         "차분하고 평온한 기분이다",
@@ -67,34 +77,64 @@ EMOTION_DATA = {
 }
 
 
+# =====================================
+# 2. 문장 토큰화
+# =====================================
+
 def tokenize(text):
-    """간단한 공백 기반 토큰화. 한국어 형태소 분석기는 사용하지 않음."""
+    """문장부호를 제거하고 공백 기준으로 단어를 분리한다."""
+
     text = re.sub(r"[^\w\s]", " ", text)
     return text.split()
 
 
-sentences = []
+# =====================================
+# 3. Word2Vec 모델 학습
+# =====================================
 
-for examples in EMOTION_DATA.values():
-    for sentence in examples:
-        tokens = tokenize(sentence)
-        if tokens:
-            sentences.append(tokens)
+def train_model():
+    """감정 데이터를 이용해 Word2Vec 모델을 학습한다."""
 
-model = Word2Vec(
-    sentences=sentences,
-    vector_size=100,
-    window=3,
-    min_count=1,
-    workers=1,
-    sg=1,
-    epochs=300,
-    seed=42,
-)
+    sentences = []
 
-model.save("emotion_word2vec.model")
+    for examples in EMOTION_DATA.values():
+        for sentence in examples:
+            tokens = tokenize(sentence)
 
-print("Word2Vec 모델 학습 완료!")
-print("학습 문장 수:", len(sentences))
-print("저장 파일: emotion_word2vec.model")
-print("벡터 크기:", model.vector_size)
+            if tokens:
+                sentences.append(tokens)
+
+    print("학습 문장 수:", len(sentences))
+
+    model = Word2Vec(
+        sentences=sentences,
+        vector_size=100,
+        window=3,
+        min_count=1,
+        workers=1,
+        sg=1,
+        epochs=300,
+        seed=42,
+    )
+
+    # 현재 파이썬 파일이 있는 폴더에 모델 저장
+    model_path = Path(__file__).with_name(
+        "emotion_word2vec.model"
+    )
+
+    model.save(str(model_path))
+
+    print("\nWord2Vec 모델 학습 완료!")
+    print("저장 위치:", model_path)
+    print("벡터 크기:", model.vector_size)
+    print("학습된 단어 수:", len(model.wv))
+    print("\n학습된 단어 목록:")
+    print(model.wv.index_to_key)
+
+
+# =====================================
+# 4. 파일을 직접 실행할 때만 학습
+# =====================================
+
+if __name__ == "__main__":
+    train_model()
