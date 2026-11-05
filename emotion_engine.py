@@ -1,21 +1,20 @@
 
 from pathlib import Path
-import csv
 
 import numpy as np
+import pandas as pd
 from gensim.models import Word2Vec
 
 from train_word2vec import tokenize
 
-
-# 경로 설정
 BASE_DIR = Path(__file__).resolve().parent
-MODEL_PATH = BASE_DIR / "emotion_word2vec.model"
-DATA_PATH = BASE_DIR / "data" / "emotion_dataset.csv"
+
+MODEL_PATH = BASE_DIR / "emotion_word2vec_kiwi.model"
+DATA_PATH = BASE_DIR / "data" / "train.csv"
 
 EMOTIONS = ["행복", "슬픔", "분노", "피로", "평온"]
 
-EMOJI = {
+EMOJI_MAP = {
     "행복": "😊",
     "슬픔": "😢",
     "분노": "😡",
@@ -23,185 +22,115 @@ EMOJI = {
     "평온": "😌",
 }
 
-DESCRIPTIONS = {
-    "행복": "기분 좋은 순간을 충분히 즐겨 보세요.",
-    "슬픔": "속상한 마음을 천천히 돌아봐도 괜찮아요.",
-    "분노": "잠시 숨을 고르고 마음을 정리해 보세요.",
-    "피로": "잠깐 쉬면서 에너지를 회복해 보세요.",
-    "평온": "지금의 차분한 기분을 이어가 보세요.",
+DESCRIPTION_MAP = {
+    "행복": "기쁘고 즐거운 감정이 느껴져요.",
+    "슬픔": "슬프거나 속상한 감정이 느껴져요.",
+    "분노": "화가 나거나 답답한 감정이 느껴져요.",
+    "피로": "피곤하거나 지친 감정이 느껴져요.",
+    "평온": "차분하고 편안한 감정이 느껴져요.",
 }
-
-
-# Word2Vec 모델 불러오기
-if not MODEL_PATH.exists():
-    raise FileNotFoundError(
-        "학습 모델이 없습니다. train_word2vec.py를 먼저 실행해 주세요."
-    )
 
 model = Word2Vec.load(str(MODEL_PATH))
 
 
-def sentence_vector(text, debug=False):
-    """문장을 단어 벡터의 평균으로 변환한다."""
+def sentence_vector(text):
+    words = tokenize(text)
+    known_words = [w for w in words if w in model.wv]
 
-    tokens = tokenize(text)
-
-    known_tokens = [
-        word for word in tokens
-        if word in model.wv
-    ]
-
-    if debug:
-        print("입력 문장:", text)
-        print("분리된 단어:", tokens)
-        print("학습된 단어:", known_tokens)
-
-    if not known_tokens:
+    if not known_words:
         return None
 
-    vectors = [model.wv[word] for word in known_tokens]
-    vector = np.mean(vectors, axis=0)
-
-    norm = np.linalg.norm(vector)
-
-    if norm == 0:
-        return None
-
-    return vector
+    vectors = [model.wv[w] for w in known_words]
+    return np.mean(vectors, axis=0)
 
 
-def cosine_score(vector_a, vector_b):
-    """두 벡터의 코사인 유사도를 계산한다."""
-
-    norm_a = np.linalg.norm(vector_a)
-    norm_b = np.linalg.norm(vector_b)
+def cosine_similarity(a, b):
+    norm_a = np.linalg.norm(a)
+    norm_b = np.linalg.norm(b)
 
     if norm_a == 0 or norm_b == 0:
         return 0.0
 
-    return float(
-        np.dot(vector_a, vector_b) / (norm_a * norm_b)
-    )
+    return float(np.dot(a, b) / (norm_a * norm_b))
 
 
 def build_emotion_vectors():
-    """CSV 문장으로 감정별 대표 벡터를 생성한다."""
+    df = pd.read_csv(DATA_PATH, encoding="utf-8-sig")
+    emotion_vectors = {}
 
-    if not DATA_PATH.exists():
-        raise FileNotFoundError(
-            f"CSV 파일을 찾을 수 없습니다: {DATA_PATH}"
-        )
+    for emotion in EMOTIONS:
+        texts = df.loc[
+            df["emotion"] == emotion, "text"
+        ].tolist()
 
-    emotion_vectors = {
-        emotion: [] for emotion in EMOTIONS
-    }
+        vectors = []
 
-    with open(
-        DATA_PATH,
-        "r",
-        encoding="utf-8-sig",
-        newline=""
-    ) as file:
-
-        reader = csv.DictReader(file)
-
-        for row in reader:
-            emotion = row["emotion"].strip()
-            text = row["text"].strip()
-
-            if emotion not in emotion_vectors:
-                continue
-
+        for text in texts:
             vector = sentence_vector(text)
 
             if vector is not None:
-                emotion_vectors[emotion].append(vector)
-
-    centroids = {}
-
-    for emotion, vectors in emotion_vectors.items():
+                vectors.append(vector)
 
         if not vectors:
             raise ValueError(
-                f"{emotion} 감정의 유효한 문장이 없습니다."
+                f"{emotion} 감정의 대표 벡터를 생성할 수 없습니다."
             )
 
-        centroid = np.mean(vectors, axis=0)
-
-        # 대표 벡터 정규화
-        norm = np.linalg.norm(centroid)
-
-        if norm > 0:
-            centroid = centroid / norm
-
-        centroids[emotion] = centroid
+        emotion_vectors[emotion] = np.mean(
+            vectors, axis=0
+        )
 
         print(
             f"{emotion} 대표 벡터 생성 완료: "
             f"{len(vectors)}개 문장"
         )
 
-    return centroids
+    return emotion_vectors
 
 
-# 프로그램 시작 시 한 번만 생성
 EMOTION_VECTORS = build_emotion_vectors()
 
 
-def analyze_emotion(text):
-    """입력 문장의 감정을 분석한다."""
+def analyze_emotion(text, debug=False):
+    words = tokenize(text)
+    known_words = [w for w in words if w in model.wv]
 
-    if not text or not text.strip():
+    if debug:
+        print("\n입력 문장:", text)
+        print("분리된 단어:", words)
+        print("학습된 단어:", known_words)
+
+    vector = sentence_vector(text)
+
+    if vector is None:
         return {
             "emotion": "판단 어려움",
             "emoji": "🤔",
             "score": 0.0,
             "scores": {},
-            "description": "감정을 분석할 문장을 입력해 주세요.",
-        }
-
-    user_vector = sentence_vector(text, debug=True)
-
-    if user_vector is None:
-        return {
-            "emotion": "판단 어려움",
-            "emoji": "🤔",
-            "score": 0.0,
-            "scores": {},
-            "description": (
-                "입력 문장에서 학습된 단어를 찾지 못했어요. "
-                "다른 표현으로 입력해 주세요."
-            ),
+            "description": "분석할 수 있는 단어가 부족해요.",
         }
 
     scores = {}
 
-    for emotion, reference_vector in EMOTION_VECTORS.items():
-
-        similarity = cosine_score(
-            user_vector,
-            reference_vector
+    for emotion, emotion_vector in EMOTION_VECTORS.items():
+        scores[emotion] = cosine_similarity(
+            vector, emotion_vector
         )
 
-        scores[emotion] = similarity
+    predicted = max(scores, key=scores.get)
 
-    best_emotion = max(scores, key=scores.get)
-    best_score = scores[best_emotion]
+    if debug:
+        print("\n감정별 유사도")
+        for emotion, score in scores.items():
+            print(f"{emotion}: {score:.4f}")
 
-    print("\n감정별 유사도")
-
-    for emotion, score in scores.items():
-        print(f"{emotion}: {score:.4f}")
-
-    print("\n최종 분석 결과:", best_emotion)
+        print("\n최종 분석 결과:", predicted)
 
     return {
-        "emotion": best_emotion,
-        "emoji": EMOJI.get(best_emotion, "🤔"),
-        "score": best_score,
+        "emotion": predicted,
+        "emoji": EMOJI_MAP[predicted],
+        "score": scores[predicted],
         "scores": scores,
-        "description": DESCRIPTIONS.get(
-            best_emotion,
-            "입력 문장을 바탕으로 감정을 추정했어요."
-        ),
+        "description": DESCRIPTION_MAP[predicted],
     }

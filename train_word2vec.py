@@ -1,99 +1,78 @@
+
 from pathlib import Path
-import csv
 from collections import Counter
 
+import pandas as pd
 from gensim.models import Word2Vec
+from kiwipiepy import Kiwi
 
-
-# 프로젝트 경로
 BASE_DIR = Path(__file__).resolve().parent
 
-# CSV 데이터 경로
-DATA_PATH = BASE_DIR / "data" / "emotion_dataset.csv"
+DATA_PATH = BASE_DIR / "data" / "train.csv"
+MODEL_PATH = BASE_DIR / "emotion_word2vec_kiwi.model"
 
-# 모델 저장 경로
-MODEL_PATH = BASE_DIR / "emotion_word2vec.model"
+kiwi = Kiwi()
 
-
-# 감정 종류
-EMOTIONS = ["행복", "슬픔", "분노", "피로", "평온"]
+# 감정 분석에 사용할 품사
+ALLOWED_TAGS = {
+    "NNG",  # 일반 명사
+    "NNP",  # 고유 명사
+    "NNB",  # 의존 명사
+    "VV",   # 동사
+    "VA",   # 형용사
+    "MAG",  # 일반 부사
+    "MAJ",  # 접속 부사
+    "XR",   # 어근
+}
 
 
 def tokenize(text):
-    """
-    문장부호를 제거하고 공백 기준으로 단어를 분리한다.
-    """
-    import re
+    tokens = kiwi.tokenize(str(text))
 
-    text = re.sub(r"[^\w\s]", " ", text)
-    return text.split()
+    words = []
+
+    for token in tokens:
+        # VA-I 등의 태그도 처리
+        tag = token.tag.split("-")[0]
+
+        if tag in ALLOWED_TAGS:
+            words.append(token.form)
+
+    return words
 
 
-def load_data():
-    """
-    CSV 파일에서 문장과 감정 데이터를 불러온다.
-    """
-
-    sentences = []
-    emotion_counts = Counter()
-
+def main():
     if not DATA_PATH.exists():
         raise FileNotFoundError(
-            f"CSV 파일을 찾을 수 없습니다: {DATA_PATH}"
+            f"학습 데이터가 없습니다: {DATA_PATH}"
         )
 
-    with open(DATA_PATH, "r", encoding="utf-8-sig", newline="") as file:
-        reader = csv.DictReader(file)
+    df = pd.read_csv(DATA_PATH, encoding="utf-8-sig")
+    df = df[["text", "emotion"]].dropna()
 
-        # CSV 열 확인
-        if not {"text", "emotion"}.issubset(reader.fieldnames or []):
-            raise ValueError(
-                "CSV 파일에는 text와 emotion 열이 필요합니다."
-            )
+    sentences = [
+        tokenize(text)
+        for text in df["text"]
+    ]
 
-        for row in reader:
-            text = row["text"].strip()
-            emotion = row["emotion"].strip()
+    # 빈 문장 제거
+    sentences = [
+        sentence
+        for sentence in sentences
+        if sentence
+    ]
 
-            if not text:
-                continue
-
-            if emotion not in EMOTIONS:
-                raise ValueError(
-                    f"잘못된 감정 라벨: {emotion}"
-                )
-
-            tokens = tokenize(text)
-
-            if tokens:
-                sentences.append(tokens)
-                emotion_counts[emotion] += 1
+    print("=" * 50)
+    print("Kiwi 기반 Word2Vec 학습")
+    print("=" * 50)
 
     print("전체 학습 문장 수:", len(sentences))
-
     print("\n감정별 데이터 수:")
-    for emotion in EMOTIONS:
-        print(f"{emotion}: {emotion_counts[emotion]}개")
+    print(df["emotion"].value_counts())
 
-    if not sentences:
-        raise ValueError("학습할 데이터가 없습니다.")
-
-    if len(emotion_counts) != len(EMOTIONS):
-        raise ValueError("일부 감정 데이터가 누락되었습니다.")
-
-    return sentences
-
-
-def train_model():
-    """
-    CSV 데이터를 이용해 Word2Vec 모델을 학습한다.
-    """
-
-    print("CSV 데이터 불러오는 중...")
-
-    sentences = load_data()
-
-    print("\nWord2Vec 학습 시작...")
+    print("\n형태소 분석 예시:")
+    for text in df["text"].head(3):
+        print(text, "->", tokenize(text))
 
     model = Word2Vec(
         sentences=sentences,
@@ -106,18 +85,26 @@ def train_model():
         seed=42
     )
 
-    # 기존 모델 파일과 같은 위치에 저장
     model.save(str(MODEL_PATH))
 
-    print("\nWord2Vec 모델 학습 완료!")
+    print("\n" + "=" * 50)
+    print("Word2Vec 모델 학습 완료!")
+    print("=" * 50)
 
     print("저장 위치:", MODEL_PATH)
     print("벡터 크기:", model.vector_size)
     print("학습된 단어 수:", len(model.wv))
 
-    print("\n학습된 단어 목록:")
-    print(model.wv.index_to_key)
+    word_counts = Counter(
+        word
+        for sentence in sentences
+        for word in sentence
+    )
+
+    print("\n자주 등장한 단어 TOP 20:")
+    for word, count in word_counts.most_common(20):
+        print(f"{word}: {count}회")
 
 
 if __name__ == "__main__":
-    train_model()
+    main()

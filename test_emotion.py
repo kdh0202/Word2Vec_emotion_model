@@ -32,7 +32,7 @@ print("=" * 60)
 
 for text, expected in test_data:
 
-    result = analyze_emotion(text)
+    result = analyze_emotion(text, debug=True)
     predicted = result["emotion"]
 
     is_correct = predicted == expected
