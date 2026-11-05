@@ -1,140 +1,123 @@
-
 from pathlib import Path
-import re
+import csv
+from collections import Counter
 
 from gensim.models import Word2Vec
 
 
-# =====================================
-# 1. 감정별 학습 데이터
-# =====================================
+# 프로젝트 경로
+BASE_DIR = Path(__file__).resolve().parent
 
-EMOTION_DATA = {
-    "행복": [
-        "오늘 행복하다",
-        "정말 기분이 좋다",
-        "즐겁고 신나는 하루다",
-        "기쁜 일이 생겼다",
-        "친구와 놀아서 즐겁다",
-        "시험에 합격해서 기쁘다",
-        "너무 신나고 좋다",
-        "웃음이 나고 행복하다",
-        "만족스럽고 뿌듯하다",
-        "오늘은 즐거운 날이다",
-    ],
+# CSV 데이터 경로
+DATA_PATH = BASE_DIR / "data" / "emotion_dataset.csv"
 
-    "슬픔": [
-        "오늘 슬프다",
-        "정말 우울하고 속상하다",
-        "마음이 아프고 힘들다",
-        "눈물이 나고 외롭다",
-        "친구와 헤어져서 슬프다",
-        "기대했던 일이 실패해서 실망했다",
-        "마음이 무겁고 괴롭다",
-        "위로받고 싶고 쓸쓸하다",
-        "아쉽고 서운한 마음이다",
-        "오늘은 기분이 좋지 않다",
-    ],
-
-    "분노": [
-        "오늘 화가 난다",
-        "정말 짜증 나고 열받는다",
-        "억울하고 답답하다",
-        "불공평해서 화가 난다",
-        "상대방 때문에 기분이 나쁘다",
-        "참을 수 없이 분하다",
-        "너무 신경질이 난다",
-        "불쾌하고 화가 치밀어 오른다",
-        "답답해서 화를 내고 싶다",
-        "정말 짜증 나는 하루다",
-    ],
-
-    "피로": [
-        "오늘 너무 피곤하다",
-        "몸이 지치고 힘들다",
-        "쉬고 싶고 기운이 없다",
-        "할 일이 많아서 녹초가 됐다",
-        "잠이 부족하고 졸리다",
-        "에너지가 없고 무기력하다",
-        "집중이 안 되고 피곤하다",
-        "몸과 마음이 지쳤다",
-        "아무것도 하기 싫다",
-        "휴식이 필요하고 피곤하다",
-    ],
-
-    "평온": [
-        "오늘 마음이 편안하다",
-        "차분하고 평온한 기분이다",
-        "여유롭고 안정되어 있다",
-        "조용히 쉬니 마음이 편하다",
-        "긴장이 풀리고 편안하다",
-        "걱정이 없고 마음이 잔잔하다",
-        "오늘은 차분한 하루다",
-        "마음이 안정되고 여유롭다",
-        "고요하고 편안한 기분이다",
-        "평화롭고 느긋하다",
-    ],
-}
+# 모델 저장 경로
+MODEL_PATH = BASE_DIR / "emotion_word2vec.model"
 
 
-# =====================================
-# 2. 문장 토큰화
-# =====================================
+# 감정 종류
+EMOTIONS = ["행복", "슬픔", "분노", "피로", "평온"]
+
 
 def tokenize(text):
-    """문장부호를 제거하고 공백 기준으로 단어를 분리한다."""
+    """
+    문장부호를 제거하고 공백 기준으로 단어를 분리한다.
+    """
+    import re
 
     text = re.sub(r"[^\w\s]", " ", text)
     return text.split()
 
 
-# =====================================
-# 3. Word2Vec 모델 학습
-# =====================================
-
-def train_model():
-    """감정 데이터를 이용해 Word2Vec 모델을 학습한다."""
+def load_data():
+    """
+    CSV 파일에서 문장과 감정 데이터를 불러온다.
+    """
 
     sentences = []
+    emotion_counts = Counter()
 
-    for examples in EMOTION_DATA.values():
-        for sentence in examples:
-            tokens = tokenize(sentence)
+    if not DATA_PATH.exists():
+        raise FileNotFoundError(
+            f"CSV 파일을 찾을 수 없습니다: {DATA_PATH}"
+        )
+
+    with open(DATA_PATH, "r", encoding="utf-8-sig", newline="") as file:
+        reader = csv.DictReader(file)
+
+        # CSV 열 확인
+        if not {"text", "emotion"}.issubset(reader.fieldnames or []):
+            raise ValueError(
+                "CSV 파일에는 text와 emotion 열이 필요합니다."
+            )
+
+        for row in reader:
+            text = row["text"].strip()
+            emotion = row["emotion"].strip()
+
+            if not text:
+                continue
+
+            if emotion not in EMOTIONS:
+                raise ValueError(
+                    f"잘못된 감정 라벨: {emotion}"
+                )
+
+            tokens = tokenize(text)
 
             if tokens:
                 sentences.append(tokens)
+                emotion_counts[emotion] += 1
 
-    print("학습 문장 수:", len(sentences))
+    print("전체 학습 문장 수:", len(sentences))
+
+    print("\n감정별 데이터 수:")
+    for emotion in EMOTIONS:
+        print(f"{emotion}: {emotion_counts[emotion]}개")
+
+    if not sentences:
+        raise ValueError("학습할 데이터가 없습니다.")
+
+    if len(emotion_counts) != len(EMOTIONS):
+        raise ValueError("일부 감정 데이터가 누락되었습니다.")
+
+    return sentences
+
+
+def train_model():
+    """
+    CSV 데이터를 이용해 Word2Vec 모델을 학습한다.
+    """
+
+    print("CSV 데이터 불러오는 중...")
+
+    sentences = load_data()
+
+    print("\nWord2Vec 학습 시작...")
 
     model = Word2Vec(
         sentences=sentences,
         vector_size=100,
-        window=3,
+        window=5,
         min_count=1,
         workers=1,
         sg=1,
-        epochs=300,
-        seed=42,
+        epochs=100,
+        seed=42
     )
 
-    # 현재 파이썬 파일이 있는 폴더에 모델 저장
-    model_path = Path(__file__).with_name(
-        "emotion_word2vec.model"
-    )
-
-    model.save(str(model_path))
+    # 기존 모델 파일과 같은 위치에 저장
+    model.save(str(MODEL_PATH))
 
     print("\nWord2Vec 모델 학습 완료!")
-    print("저장 위치:", model_path)
+
+    print("저장 위치:", MODEL_PATH)
     print("벡터 크기:", model.vector_size)
     print("학습된 단어 수:", len(model.wv))
+
     print("\n학습된 단어 목록:")
     print(model.wv.index_to_key)
 
-
-# =====================================
-# 4. 파일을 직접 실행할 때만 학습
-# =====================================
 
 if __name__ == "__main__":
     train_model()
