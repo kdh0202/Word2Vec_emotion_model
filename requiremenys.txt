@@ -2,3 +2,10 @@ gensim
 numpy
 scikit-learn
 streamlit
+streamlit
+gensim
+numpy
+scipy
+scikit-learn
+kiwipiepy
+pandas
