@@ -31,3 +31,11 @@ for sentence in sentences:
         reverse=True
     ):
         print(f"{emotion}: {float(score):.4f}")
+
+sentences = [
+    "친구와 싸워서 너무 속상해",
+    "친구와 다퉈서 마음이 아파",
+    "친구와 즐겁게 놀아서 행복해",
+    "친구 때문에 화가 나",
+    "친구와 화해해서 기뻐",
+]
